@@ -1437,3 +1437,750 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.savefig('strategy_comparison.png')
     plt.close()
+@error_handler
+def optimize_portfolio_gnn_attention(returns, features, target_return, risk_tolerance):
+    data = prepare_gnn_data(returns, features)
+    
+    class AttentionGNN(torch.nn.Module):
+        def __init__(self, num_features, hidden_channels, num_heads, num_classes):
+            super(AttentionGNN, self).__init__()
+            self.conv1 = GATConv(num_features, hidden_channels, heads=num_heads, dropout=0.6)
+            self.conv2 = GATConv(hidden_channels * num_heads, num_classes, heads=1, concat=False, dropout=0.6)
+
+        def forward(self, x, edge_index):
+            x = F.dropout(x, p=0.6, training=self.training)
+            x = F.elu(self.conv1(x, edge_index))
+            x = F.dropout(x, p=0.6, training=self.training)
+            x = self.conv2(x, edge_index)
+            return x
+
+    model = AttentionGNN(num_features=features.shape[1], hidden_channels=32, num_heads=4, num_classes=1)
+    target = torch.tensor(returns.mean().values, dtype=torch.float).unsqueeze(1)
+
+    train_gnn(model, data, target)
+
+    model.eval()
+    with torch.no_grad():
+        predicted_returns = model(data.x, data.edge_index).squeeze().numpy()
+
+    def objective(weights):
+        portfolio_return = np.sum(predicted_returns * weights)
+        portfolio_risk = np.sqrt(np.dot(weights.T, np.dot(returns.cov(), weights)))
+        return -(portfolio_return - risk_tolerance * portfolio_risk)
+
+    n_assets = len(returns.columns)
+    constraints = (
+        {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
+        {'type': 'eq', 'fun': lambda x: np.sum(predicted_returns * x) - target_return}
+    )
+    bounds = tuple((0, 1) for _ in range(n_assets))
+
+    result = minimize(objective, [1/n_assets]*n_assets, method='SLSQP', bounds=bounds, constraints=constraints)
+
+    return result.x
+
+@error_handler
+def optimize_portfolio_gnn_lstm(returns, features, sequence_length=30):
+    from torch_geometric_temporal import TemporalData
+    from torch_geometric_temporal.nn.recurrent import GCLSTM
+
+    # Подготовка временных рядов данных
+    edge_index = create_stock_graph(returns)
+    node_features = []
+    y = []
+    for i in range(len(returns) - sequence_length):
+        node_features.append(features.iloc[i:i+sequence_length].values)
+        y.append(returns.iloc[i+sequence_length].values)
+    
+    node_features = torch.tensor(np.array(node_features), dtype=torch.float)
+    y = torch.tensor(np.array(y), dtype=torch.float)
+
+    dataset = TemporalData(
+        edge_index=edge_index,
+        edge_attr=None,
+        x=node_features,
+        y=y
+    )
+
+    class TemporalGNN(torch.nn.Module):
+        def __init__(self, node_features, hidden_channels, num_assets):
+            super(TemporalGNN, self).__init__()
+            self.recurrent = GCLSTM(node_features, hidden_channels, 2)
+            self.linear = torch.nn.Linear(hidden_channels, num_assets)
+
+        def forward(self, x, edge_index):
+            h, c = self.recurrent(x, edge_index)
+            h = F.relu(h)
+            h = self.linear(h)
+            return h
+
+    model = TemporalGNN(node_features=features.shape[1], hidden_channels=64, num_assets=returns.shape[1])
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    criterion = torch.nn.MSELoss()
+
+    model.train()
+    for epoch in range(200):
+        cost = 0
+        for time, snapshot in enumerate(dataset):
+            y_hat = model(snapshot.x, snapshot.edge_index)
+            cost = cost + criterion(y_hat, snapshot.y)
+        cost = cost / (time + 1)
+        cost.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+
+    model.eval()
+    with torch.no_grad():
+        predicted_returns = model(dataset[-1].x, dataset[-1].edge_index).numpy()
+
+    def objective(weights):
+        portfolio_return = np.sum(predicted_returns * weights)
+        portfolio_risk = np.sqrt(np.dot(weights.T, np.dot(returns.iloc[-sequence_length:].cov(), weights)))
+        return -(portfolio_return - 0.5 * portfolio_risk)
+
+    n_assets = len(returns.columns)
+    constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+    bounds = tuple((0, 1) for _ in range(n_assets))
+
+    result = minimize(objective, [1/n_assets]*n_assets, method='SLSQP', bounds=bounds, constraints=constraints)
+
+    return result.x
+
+@error_handler
+def optimize_portfolio_gnn_autoencoder(returns, features, target_return, risk_tolerance):
+    data = prepare_gnn_data(returns, features)
+    
+    class GNNAutoencoder(torch.nn.Module):
+        def __init__(self, num_features, hidden_channels, latent_dim):
+            super(GNNAutoencoder, self).__init__()
+            self.encoder_conv1 = GCNConv(num_features, hidden_channels)
+            self.encoder_conv2 = GCNConv(hidden_channels, latent_dim)
+            self.decoder_conv1 = GCNConv(latent_dim, hidden_channels)
+            self.decoder_conv2 = GCNConv(hidden_channels, num_features)
+
+        def encode(self, x, edge_index):
+            x = F.relu(self.encoder_conv1(x, edge_index))
+            x = self.encoder_conv2(x, edge_index)
+            return x
+
+        def decode(self, x, edge_index):
+            x = F.relu(self.decoder_conv1(x, edge_index))
+            x = self.decoder_conv2(x, edge_index)
+            return x
+
+        def forward(self, x, edge_index):
+            z = self.encode(x, edge_index)
+            return self.decode(z, edge_index)
+
+    model = GNNAutoencoder(num_features=features.shape[1], hidden_channels=64, latent_dim=32)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    criterion = torch.nn.MSELoss()
+
+    model.train()
+    for epoch in range(200):
+        optimizer.zero_grad()
+        out = model(data.x, data.edge_index)
+        loss = criterion(out, data.x)
+        loss.backward()
+        optimizer.step()
+
+    model.eval()
+    with torch.no_grad():
+        latent_representation = model.encode(data.x, data.edge_index).numpy()
+
+    # Используем латентное представление для оптимизации портфеля
+    def objective(weights):
+        portfolio_return = np.sum(returns.mean() * weights)
+        portfolio_risk = np.sqrt(np.dot(weights.T, np.dot(returns.cov(), weights)))
+        latent_portfolio = np.sum(latent_representation * weights, axis=0)
+        latent_penalty = np.linalg.norm(latent_portfolio)
+        return -(portfolio_return - risk_tolerance * portfolio_risk - 0.1 * latent_penalty)
+
+    n_assets = len(returns.columns)
+    constraints = (
+        {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
+        {'type': 'eq', 'fun': lambda x: np.sum(returns.mean() * x) - target_return}
+    )
+    bounds = tuple((0, 1) for _ in range(n_assets))
+
+    result = minimize(objective, [1/n_assets]*n_assets, method='SLSQP', bounds=bounds, constraints=constraints)
+
+    return result.x
+
+@error_handler
+def optimize_portfolio_gnn_adversarial(returns, features, target_return, risk_tolerance, num_epochs=500):
+    data = prepare_gnn_data(returns, features)
+    
+    class Generator(torch.nn.Module):
+        def __init__(self, num_features, hidden_channels, num_assets):
+            super(Generator, self).__init__()
+            self.conv1 = GCNConv(num_features, hidden_channels)
+            self.conv2 = GCNConv(hidden_channels, num_assets)
+
+        def forward(self, x, edge_index):
+            x = F.relu(self.conv1(x, edge_index))
+            x = self.conv2(x, edge_index)
+            return F.softmax(x, dim=1)
+
+    class Discriminator(torch.nn.Module):
+        def __init__(self, num_assets, hidden_channels):
+            super(Discriminator, self).__init__()
+            self.fc1 = torch.nn.Linear(num_assets, hidden_channels)
+            self.fc2 = torch.nn.Linear(hidden_channels, 1)
+
+        def forward(self, x):
+            x = F.relu(self.fc1(x))
+            return torch.sigmoid(self.fc2(x))
+
+    generator = Generator(num_features=features.shape[1], hidden_channels=64, num_assets=returns.shape[1])
+    discriminator = Discriminator(num_assets=returns.shape[1], hidden_channels=32)
+
+    optimizer_g = torch.optim.Adam(generator.parameters(), lr=0.001)
+    optimizer_d = torch.optim.Adam(discriminator.parameters(), lr=0.001)
+
+    for epoch in range(num_epochs):
+        # Обучение дискриминатора
+        optimizer_d.zero_grad()
+        real_weights = torch.tensor(optimize_portfolio_markowitz(returns, target_return, risk_tolerance), dtype=torch.float32)
+        fake_weights = generator(data.x, data.edge_index).detach()
+        real_loss = F.binary_cross_entropy(discriminator(real_weights), torch.ones(1))
+        fake_loss = F.binary_cross_entropy(discriminator(fake_weights), torch.zeros(1))
+        d_loss = real_loss + fake_loss
+        d_loss.backward()
+        optimizer_d.step()
+
+        # Обучение генератора
+        optimizer_g.zero_grad()
+        fake_weights = generator(data.x, data.edge_index)
+        g_loss = F.binary_cross_entropy(discriminator(fake_weights), torch.ones(1))
+        g_loss.backward()
+        optimizer_g.step()
+
+        if (epoch + 1) % 100 == 0:
+            print(f"Epoch {epoch+1}/{num_epochs}, D Loss: {d_loss.item():.4f}, G Loss: {g_loss.item():.4f}")
+
+    generator.eval()
+    with torch.no_grad():
+        optimized_weights = generator(data.x, data.edge_index).numpy()
+
+    return optimized_weights.squeeze()
+
+@error_handler
+def optimize_portfolio_gnn_multiobjective(returns, features):
+    data = prepare_gnn_data(returns, features)
+    
+    class MultiObjectiveGNN(torch.nn.Module):
+        def __init__(self, num_features, hidden_channels, num_objectives):
+            super(MultiObjectiveGNN, self).__init__()
+            self.conv1 = GCNConv(num_features, hidden_channels)
+            self.conv2 = GCNConv(hidden_channels, hidden_channels)
+            self.out = torch.nn.Linear(hidden_channels, num_objectives)
+
+        def forward(self, x, edge_index):
+            x = F.relu(self.conv1(x, edge_index))
+            x = F.dropout(x, p=0.5, training=self.training)
+            x = F.relu(self.conv2(x, edge_index))
+            x = F.dropout(x, p=0.5, training=self.training)
+            return self.out(x)
+
+    model = MultiObjectiveGNN(num_features=features.shape[1], hidden_channels=64, num_objectives=2)
+    target_return = torch.tensor(returns.mean().values, dtype=torch.float)
+    target_risk = torch.tensor(returns.std().values, dtype=torch.float)
+    target = torch.stack([target_return, target_risk], dim=1)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    criterion = torch.nn.MSELoss()
+
+    model.train()
+    for epoch in range(200):
+        optimizer.zero_grad()
+        out = model(data.x, data.edge_index)
+        loss = criterion(out, target)
+        loss.backward()
+        optimizer.step()
+
+    model.eval()
+    with torch.no_grad():
+        predictions = model(data.x, data.edge_index).numpy()
+        predicted_returns, predicted_risks = predictions[:, 0], predictions[:, 1]
+
+    def objective(weights):
+        portfolio_return = np.sum(predicted_returns * weights)
+        portfolio_risk = np.sqrt(np.dot(weights.T, np.dot(np.diag(predicted_risks**2), weights)))
+        return [-portfolio_return, portfolio_risk]
+
+    n_assets = len(returns.columns)
+    constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+    bounds = tuple((0, 1) for _ in range(n_assets))
+
+    from pymoo.algorithms.moo.nsga2 import NSGA2
+    from pymoo.core.problem import Problem
+    from pymoo.optimize import minimize
+
+    class PortfolioOptimizationProblem(Problem):
+        def __init__(self):
+            super().__init__(n_var=n_assets, n_obj=2, n_constr=1)
+
+        def _evaluate(self, x, out, *args, **kwargs):
+            f = np.array([objective(xi) for xi in x])
+            g = np.sum(x, axis=1) - 1
+            out["F"] = f
+            out["G"] = g
+
+    problem = PortfolioOptimizationProblem()
+    algorithm = NSGA2(pop_size=100)
+    res = minimize(problem, algorithm, ('n_gen', 100), verbose=True)
+
+    return res.X
+
+@error_handler
+def optimize_portfolio_gnn_transfer_learning(source_returns, source_features, target_returns, target_features, target_return, risk_tolerance):
+    source_data = prepare_gnn_data(source_returns, source_features)
+    target_data = prepare_gnn_data(target_returns, target_features)
+
+    class TransferGNN(torch.nn.Module):
+        def __init__(self, num_features, hidden_channels, num_classes):
+            super(TransferGNN, self).__init__()
+            self.conv1 = GCNConv(num_features, hidden_channels)
+            self.conv2 = GCNConv(hidden_channels, num_classes)
+
+        def forward(self, x, edge_index):
+            x = F.relu(self.conv1(x, edge_index))
+            x = self.conv2(x, edge_index)
+            return x
+
+   # Предобучение на исходных данных
+    source_model = TransferGNN(num_features=source_features.shape[1], hidden_channels=64, num_classes=1)
+    source_target = torch.tensor(source_returns.mean().values, dtype=torch.float).unsqueeze(1)
+
+    train_gnn(source_model, source_data, source_target, epochs=100)
+
+    # Перенос обученных весов на целевую модель
+    target_model = TransferGNN(num_features=target_features.shape[1], hidden_channels=64, num_classes=1)
+    target_model.load_state_dict(source_model.state_dict())
+
+    # Дообучение на целевых данных
+    target_target = torch.tensor(target_returns.mean().values, dtype=torch.float).unsqueeze(1)
+    train_gnn(target_model, target_data, target_target, epochs=50)
+
+    target_model.eval()
+    with torch.no_grad():
+        predicted_returns = target_model(target_data.x, target_data.edge_index).squeeze().numpy()
+
+    def objective(weights):
+        portfolio_return = np.sum(predicted_returns * weights)
+        portfolio_risk = np.sqrt(np.dot(weights.T, np.dot(target_returns.cov(), weights)))
+        return -(portfolio_return - risk_tolerance * portfolio_risk)
+
+    n_assets = len(target_returns.columns)
+    constraints = (
+        {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
+        {'type': 'eq', 'fun': lambda x: np.sum(predicted_returns * x) - target_return}
+    )
+    bounds = tuple((0, 1) for _ in range(n_assets))
+
+    result = minimize(objective, [1/n_assets]*n_assets, method='SLSQP', bounds=bounds, constraints=constraints)
+
+    return result.x
+
+@error_handler
+def optimize_portfolio_gnn_meta_learning(returns_list, features_list, target_returns, target_features, target_return, risk_tolerance):
+    from torch.optim import Adam
+    from collections import OrderedDict
+
+    class MetaGNN(torch.nn.Module):
+        def __init__(self, num_features, hidden_channels, num_classes):
+            super(MetaGNN, self).__init__()
+            self.conv1 = GCNConv(num_features, hidden_channels)
+            self.conv2 = GCNConv(hidden_channels, num_classes)
+
+        def forward(self, x, edge_index):
+            x = F.relu(self.conv1(x, edge_index))
+            x = self.conv2(x, edge_index)
+            return x
+
+    def inner_loop(model, data, target, alpha=0.01):
+        criterion = torch.nn.MSELoss()
+        optimizer = Adam(model.parameters(), lr=alpha)
+        
+        optimizer.zero_grad()
+        output = model(data.x, data.edge_index)
+        loss = criterion(output, target)
+        loss.backward()
+        optimizer.step()
+        
+        return OrderedDict((name, param.data) for (name, param) in model.named_parameters())
+
+    meta_model = MetaGNN(num_features=features_list[0].shape[1], hidden_channels=64, num_classes=1)
+    meta_optimizer = Adam(meta_model.parameters(), lr=0.001)
+
+    # Мета-обучение
+    for epoch in range(100):
+        meta_loss = 0
+        for returns, features in zip(returns_list, features_list):
+            data = prepare_gnn_data(returns, features)
+            target = torch.tensor(returns.mean().values, dtype=torch.float).unsqueeze(1)
+            
+            # Внутренний цикл обучения
+            fast_weights = inner_loop(meta_model, data, target)
+            
+            # Обновление мета-параметров
+            with torch.no_grad():
+                for name, param in meta_model.named_parameters():
+                    param.data = fast_weights[name]
+            
+            output = meta_model(data.x, data.edge_index)
+            loss = torch.nn.MSELoss()(output, target)
+            meta_loss += loss
+
+        meta_loss /= len(returns_list)
+        meta_optimizer.zero_grad()
+        meta_loss.backward()
+        meta_optimizer.step()
+
+    # Адаптация к целевым данным
+    target_data = prepare_gnn_data(target_returns, target_features)
+    target_target = torch.tensor(target_returns.mean().values, dtype=torch.float).unsqueeze(1)
+    adapted_weights = inner_loop(meta_model, target_data, target_target)
+
+    # Применение адаптированных весов
+    for name, param in meta_model.named_parameters():
+        param.data = adapted_weights[name]
+
+    meta_model.eval()
+    with torch.no_grad():
+        predicted_returns = meta_model(target_data.x, target_data.edge_index).squeeze().numpy()
+
+    def objective(weights):
+        portfolio_return = np.sum(predicted_returns * weights)
+        portfolio_risk = np.sqrt(np.dot(weights.T, np.dot(target_returns.cov(), weights)))
+        return -(portfolio_return - risk_tolerance * portfolio_risk)
+
+    n_assets = len(target_returns.columns)
+    constraints = (
+        {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
+        {'type': 'eq', 'fun': lambda x: np.sum(predicted_returns * x) - target_return}
+    )
+    bounds = tuple((0, 1) for _ in range(n_assets))
+
+    result = minimize(objective, [1/n_assets]*n_assets, method='SLSQP', bounds=bounds, constraints=constraints)
+
+    return result.x
+
+@error_handler
+def optimize_portfolio_gnn_federated(returns_list, features_list, target_return, risk_tolerance):
+    from collections import OrderedDict
+
+    class FederatedGNN(torch.nn.Module):
+        def __init__(self, num_features, hidden_channels, num_classes):
+            super(FederatedGNN, self).__init__()
+            self.conv1 = GCNConv(num_features, hidden_channels)
+            self.conv2 = GCNConv(hidden_channels, num_classes)
+
+        def forward(self, x, edge_index):
+            x = F.relu(self.conv1(x, edge_index))
+            x = self.conv2(x, edge_index)
+            return x
+
+    def train_local_model(model, data, target):
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+        criterion = torch.nn.MSELoss()
+        
+        model.train()
+        for _ in range(10):  # Локальные эпохи
+            optimizer.zero_grad()
+            output = model(data.x, data.edge_index)
+            loss = criterion(output, target)
+            loss.backward()
+            optimizer.step()
+        
+        return OrderedDict((name, param.data) for (name, param) in model.named_parameters())
+
+    def aggregate_models(model_weights_list):
+        averaged_weights = OrderedDict()
+        for name in model_weights_list[0].keys():
+            averaged_weights[name] = torch.stack([weights[name] for weights in model_weights_list]).mean(dim=0)
+        return averaged_weights
+
+    # Инициализация глобальной модели
+    global_model = FederatedGNN(num_features=features_list[0].shape[1], hidden_channels=64, num_classes=1)
+
+    # Федеративное обучение
+    for round in range(10):  # Раунды федеративного обучения
+        local_weights_list = []
+        for returns, features in zip(returns_list, features_list):
+            data = prepare_gnn_data(returns, features)
+            target = torch.tensor(returns.mean().values, dtype=torch.float).unsqueeze(1)
+            
+            local_model = FederatedGNN(num_features=features.shape[1], hidden_channels=64, num_classes=1)
+            local_model.load_state_dict(global_model.state_dict())
+            
+            local_weights = train_local_model(local_model, data, target)
+            local_weights_list.append(local_weights)
+        
+        # Агрегация локальных моделей
+        global_weights = aggregate_models(local_weights_list)
+        global_model.load_state_dict(global_weights)
+
+    # Прогнозирование с использованием глобальной модели
+    global_model.eval()
+    all_returns = pd.concat(returns_list, axis=1)
+    all_features = pd.concat(features_list, axis=1)
+    global_data = prepare_gnn_data(all_returns, all_features)
+    
+    with torch.no_grad():
+        predicted_returns = global_model(global_data.x, global_data.edge_index).squeeze().numpy()
+
+    def objective(weights):
+        portfolio_return = np.sum(predicted_returns * weights)
+        portfolio_risk = np.sqrt(np.dot(weights.T, np.dot(all_returns.cov(), weights)))
+        return -(portfolio_return - risk_tolerance * portfolio_risk)
+
+    n_assets = len(all_returns.columns)
+    constraints = (
+        {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
+        {'type': 'eq', 'fun': lambda x: np.sum(predicted_returns * x) - target_return}
+    )
+    bounds = tuple((0, 1) for _ in range(n_assets))
+
+    result = minimize(objective, [1/n_assets]*n_assets, method='SLSQP', bounds=bounds, constraints=constraints)
+
+    return result.x
+
+@error_handler
+def optimize_portfolio_gnn_ensemble_boosting(returns, features, target_return, risk_tolerance, n_estimators=10):
+    from sklearn.ensemble import GradientBoostingRegressor
+
+    base_predictions = []
+    for _ in range(n_estimators):
+        data = prepare_gnn_data(returns, features)
+        model = StockGNN(num_features=features.shape[1], hidden_channels=64, num_classes=1)
+        target = torch.tensor(returns.mean().values, dtype=torch.float).unsqueeze(1)
+        
+        train_gnn(model, data, target)
+        
+        model.eval()
+        with torch.no_grad():
+            pred = model(data.x, data.edge_index).squeeze().numpy()
+            base_predictions.append(pred)
+    
+    base_predictions = np.array(base_predictions).T
+
+    # Обучение бустинга на предсказаниях базовых моделей
+    boosting_model = GradientBoostingRegressor(n_estimators=100, learning_rate=0.1, max_depth=3)
+    boosting_model.fit(base_predictions, returns.mean().values)
+
+    # Получение окончательных предсказаний
+    final_predictions = boosting_model.predict(base_predictions)
+
+    def objective(weights):
+        portfolio_return = np.sum(final_predictions * weights)
+        portfolio_risk = np.sqrt(np.dot(weights.T, np.dot(returns.cov(), weights)))
+        return -(portfolio_return - risk_tolerance * portfolio_risk)
+
+    n_assets = len(returns.columns)
+    constraints = (
+        {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
+        {'type': 'eq', 'fun': lambda x: np.sum(final_predictions * x) - target_return}
+    )
+    bounds = tuple((0, 1) for _ in range(n_assets))
+
+    result = minimize(objective, [1/n_assets]*n_assets, method='SLSQP', bounds=bounds, constraints=constraints)
+
+    return result.x
+
+@error_handler
+def optimize_portfolio_gnn_time_series(returns, features, target_return, risk_tolerance, sequence_length=30):
+    from torch_geometric_temporal import TemporalData
+    from torch_geometric_temporal.nn.recurrent import DCRNN
+
+    # Подготовка временных рядов данных
+    edge_index = create_stock_graph(returns)
+    node_features = []
+    y = []
+    for i in range(len(returns) - sequence_length):
+        node_features.append(features.iloc[i:i+sequence_length].values)
+        y.append(returns.iloc[i+sequence_length].values)
+    
+    node_features = torch.tensor(np.array(node_features), dtype=torch.float)
+    y = torch.tensor(np.array(y), dtype=torch.float)
+
+    dataset = TemporalData(
+        edge_index=edge_index,
+        edge_attr=None,
+        x=node_features,
+        y=y
+    )
+
+    class TemporalGNN(torch.nn.Module):
+        def __init__(self, node_features, hidden_channels, num_assets):
+            super(TemporalGNN, self).__init__()
+            self.recurrent = DCRNN(node_features, hidden_channels, 2)
+            self.linear = torch.nn.Linear(hidden_channels, num_assets)
+
+        def forward(self, x, edge_index):
+            h = self.recurrent(x, edge_index)
+            h = F.relu(h)
+            h = self.linear(h)
+            return h
+
+    model = TemporalGNN(node_features=features.shape[1], hidden_channels=64, num_assets=returns.shape[1])
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    criterion = torch.nn.MSELoss()
+
+    model.train()
+    for epoch in range(200):
+        cost = 0
+        for time, snapshot in enumerate(dataset):
+            y_hat = model(snapshot.x, snapshot.edge_index)
+            cost = cost + criterion(y_hat, snapshot.y)
+        cost = cost / (time + 1)
+        cost.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+
+    model.eval()
+    with torch.no_grad():
+        predicted_returns = model(dataset[-1].x, dataset[-1].edge_index).numpy()
+
+    def objective(weights):
+        portfolio_return = np.sum(predicted_returns * weights)
+        portfolio_risk = np.sqrt(np.dot(weights.T, np.dot(returns.iloc[-sequence_length:].cov(), weights)))
+        return -(portfolio_return - risk_tolerance * portfolio_risk)
+
+    n_assets = len(returns.columns)
+    constraints = (
+        {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
+        {'type': 'eq', 'fun': lambda x: np.sum(predicted_returns * x) - target_return}
+    )
+    bounds = tuple((0, 1) for _ in range(n_assets))
+
+    result = minimize(objective, [1/n_assets]*n_assets, method='SLSQP', bounds=bounds, constraints=constraints)
+
+    return result.x
+
+@error_handler
+def visualize_portfolio_optimization_results(returns, weights_dict, risk_free_rate=0.02):
+    plt.figure(figsize=(12, 8))
+    
+    # Рассчитываем эффективную границу
+    n_points = 100
+    target_returns = np.linspace(returns.mean().min(), returns.mean().max(), n_points)
+    efficient_portfolios = [optimize_portfolio_markowitz(returns, target_return, 1) for target_return in target_returns
+efficient_portfolios = [optimize_portfolio_markowitz(returns, target_return, 1) for target_return in target_returns]
+    efficient_returns = [np.sum(returns.mean() * weights) for weights in efficient_portfolios]
+    efficient_volatilities = [np.sqrt(np.dot(weights.T, np.dot(returns.cov(), weights))) for weights in efficient_portfolios]
+
+    # Строим эффективную границу
+    plt.plot(efficient_volatilities, efficient_returns, 'b-', label='Эффективная граница')
+
+    # Добавляем точки для каждой стратегии оптимизации
+    colors = plt.cm.rainbow(np.linspace(0, 1, len(weights_dict)))
+    for (name, weights), color in zip(weights_dict.items(), colors):
+        portfolio_return = np.sum(returns.mean() * weights)
+        portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(returns.cov(), weights)))
+        sharpe_ratio = (portfolio_return - risk_free_rate) / portfolio_volatility
+        plt.scatter(portfolio_volatility, portfolio_return, marker='o', color=color, s=100, label=f'{name} (Sharpe: {sharpe_ratio:.2f})')
+
+    # Добавляем линию рынка капитала
+    market_portfolio = optimize_portfolio_maximum_sharpe(returns, risk_free_rate)
+    market_return = np.sum(returns.mean() * market_portfolio)
+    market_volatility = np.sqrt(np.dot(market_portfolio.T, np.dot(returns.cov(), market_portfolio)))
+    plt.plot([0, market_volatility, max(efficient_volatilities)], 
+             [risk_free_rate, market_return, market_return + (market_return - risk_free_rate) / market_volatility * (max(efficient_volatilities) - market_volatility)], 
+             'r--', label='Линия рынка капитала')
+
+    plt.xlabel('Волатильность портфеля')
+    plt.ylabel('Ожидаемая доходность портфеля')
+    plt.title('Сравнение стратегий оптимизации портфеля')
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.tight_layout()
+    plt.savefig('portfolio_optimization_comparison.png')
+    plt.close()
+
+@error_handler
+def run_comprehensive_portfolio_analysis(returns, features, test_returns, test_features):
+    strategies = {
+        'GNN': optimize_portfolio_gnn,
+        'GNN Ensemble': optimize_portfolio_gnn_ensemble,
+        'GNN Multitask': optimize_portfolio_gnn_multitask,
+        'GNN Reinforcement': optimize_portfolio_gnn_reinforcement,
+        'GNN Temporal': optimize_portfolio_gnn_temporal,
+        'GNN Attention': optimize_portfolio_gnn_attention,
+        'GNN LSTM': optimize_portfolio_gnn_lstm,
+        'GNN Autoencoder': optimize_portfolio_gnn_autoencoder,
+        'GNN Adversarial': optimize_portfolio_gnn_adversarial,
+        'GNN Multiobjective': optimize_portfolio_gnn_multiobjective,
+        'GNN Transfer Learning': lambda r, f, tr, rt: optimize_portfolio_gnn_transfer_learning(returns, features, r, f, tr, rt),
+        'GNN Meta-Learning': lambda r, f, tr, rt: optimize_portfolio_gnn_meta_learning([returns], [features], r, f, tr, rt),
+        'GNN Federated': lambda r, f, tr, rt: optimize_portfolio_gnn_federated([returns], [features], tr, rt),
+        'GNN Ensemble Boosting': optimize_portfolio_gnn_ensemble_boosting,
+        'GNN Time Series': optimize_portfolio_gnn_time_series,
+        'Mean-Variance': optimize_portfolio_markowitz,
+        'Minimum Variance': optimize_portfolio_minimum_variance,
+        'Maximum Sharpe': optimize_portfolio_maximum_sharpe,
+        'Risk Parity': optimize_portfolio_risk_parity,
+        'Black-Litterman': optimize_portfolio_black_litterman
+    }
+
+    results = {}
+    weights_dict = {}
+    for name, strategy in strategies.items():
+        print(f"Running strategy: {name}")
+        if 'GNN' in name:
+            weights = strategy(returns, features, target_return=0.1, risk_tolerance=0.5)
+        else:
+            weights = strategy(returns)
+        
+        weights_dict[name] = weights
+        train_performance = evaluate_portfolio_performance(weights, returns)
+        test_performance = evaluate_portfolio_performance(weights, test_returns)
+        
+        results[name] = {
+            'Train Performance': train_performance,
+            'Test Performance': test_performance,
+            'Weights': weights
+        }
+
+    # Визуализация результатов
+    visualize_portfolio_optimization_results(returns, weights_dict)
+
+    # Сравнительный анализ стратегий
+    comparison_df = pd.DataFrame({
+        name: {
+            'Train Sharpe': result['Train Performance']['Sharpe Ratio'],
+            'Test Sharpe': result['Test Performance']['Sharpe Ratio'],
+            'Train Return': result['Train Performance']['Annualized Return'],
+            'Test Return': result['Test Performance']['Annualized Return'],
+            'Train Volatility': result['Train Performance']['Volatility'],
+            'Test Volatility': result['Test Performance']['Volatility'],
+            'Train Max Drawdown': result['Train Performance']['Max Drawdown'],
+            'Test Max Drawdown': result['Test Performance']['Max Drawdown']
+        } for name, result in results.items()
+    }).T
+
+    comparison_df = comparison_df.sort_values('Test Sharpe', ascending=False)
+    print(comparison_df)
+
+    # Сохранение результатов в файл
+    comparison_df.to_csv('portfolio_optimization_comparison.csv')
+
+    return results, comparison_df
+
+if __name__ == "__main__":
+    # Загрузка данных
+    returns = load_stock_data(['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'FB'], '2010-01-01', '2021-12-31')
+    features = load_fundamental_data(['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'FB'])
+    
+    # Разделение на обучающую и тестовую выборки
+    train_returns = returns.loc[:'2020-12-31']
+    test_returns = returns.loc['2021-01-01':]
+    train_features = features.loc[:'2020-12-31']
+    test_features = features.loc['2021-01-01':]
+    
+    # Запуск комплексного анализа
+    results, comparison = run_comprehensive_portfolio_analysis(train_returns, train_features, test_returns, test_features)
+
+    print("Анализ портфельной оптимизации завершен. Результаты сохранены в файлах:")
+    print("- portfolio_optimization_comparison.png")
+    print("- portfolio_optimization_comparison.csv")
