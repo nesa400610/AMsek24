@@ -452,3 +452,7 @@ def calculate_jensen_alpha(returns, market_returns, risk_free_rate):
     expected_return = risk_free_rate + beta * (np.mean(market_returns) - risk_free_rate)
     alpha = np.mean(returns) - expected_return
     return alpha
+@error_handler
+def calculate_treynor_ratio(returns, market_returns, risk_free_rate):
+    beta = calculate_beta(returns, market_returns)
+    return (np.mean(returns) - risk_free_rate) / beta
