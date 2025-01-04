@@ -411,3 +411,11 @@ def calculate_tail_ratio(returns, percentile=5):
     left_tail = np.percentile(returns, percentile)
     right_tail = np.percentile(returns, 100 - percentile)
     return abs(right_tail) / abs(left_tail)
+@error_handler
+def calculate_value_at_risk(returns, confidence_level=0.95):
+    return np.percentile(returns, 100 * (1 - confidence_level))
+
+@error_handler
+def calculate_conditional_value_at_risk(returns, confidence_level=0.95):
+    var = calculate_value_at_risk(returns, confidence_level)
+    return np.mean(returns[returns <= var])
