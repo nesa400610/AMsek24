@@ -63,6 +63,11 @@ def main():
     criterion = torch.nn.MSELoss()
 
     train_model(model, gnn_data, optimizer, criterion, num_epochs=100)
+    risk_tolerance = 0.5
+    optimal_weights = optimize_portfolio(model, gnn_data, risk_tolerance)
 
+    print("Оптимальные веса портфеля:")
+    for ticker, weight in zip(tickers, optimal_weights):
+        print(f"{ticker}: {weight:.4f}")
 
 
