@@ -376,3 +376,12 @@ def calculate_sterling_ratio(returns, risk_free_rate):
 @error_handler
 def calculate_portfolio_turnover(weights_before, weights_after):
     return np.sum(np.abs(weights_after - weights_before)) / 2
+@error_handler
+def calculate_herfindahl_index(weights):
+    return np.sum(weights**2)
+
+@error_handler
+def calculate_diversification_ratio(weights, covariance_matrix):
+    portfolio_variance = np.dot(weights.T, np.dot(covariance_matrix, weights))
+    weighted_volatilities = np.sum(weights * np.sqrt(np.diag(covariance_matrix)))
+    return weighted_volatilities / np.sqrt(portfolio_variance)
