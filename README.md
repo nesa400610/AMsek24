@@ -437,3 +437,18 @@ def calculate_risk_parity_weights(covariance_matrix):
 def calculate_factor_exposures(returns, factor_returns):
     factor_model = sm.OLS(returns, sm.add_constant(factor_returns)).fit()
     return factor_model.params[1:]
+@error_handler
+def calculate_tracking_error(returns, benchmark_returns):
+    active_returns = returns - benchmark_returns
+    return np.std(active_returns) * np.sqrt(252)
+
+@error_handler
+def calculate_information_coefficient(predicted_returns, actual_returns):
+    return np.corrcoef(predicted_returns, actual_returns)[0, 1]
+
+@error_handler
+def calculate_jensen_alpha(returns, market_returns, risk_free_rate):
+    beta = calculate_beta(returns, market_returns)
+    expected_return = risk_free_rate + beta * (np.mean(market_returns) - risk_free_rate)
+    alpha = np.mean(returns) - expected_return
+    return alpha
