@@ -385,3 +385,24 @@ def calculate_diversification_ratio(weights, covariance_matrix):
     portfolio_variance = np.dot(weights.T, np.dot(covariance_matrix, weights))
     weighted_volatilities = np.sum(weights * np.sqrt(np.diag(covariance_matrix)))
     return weighted_volatilities / np.sqrt(portfolio_variance)
+@error_handler
+def calculate_information_ratio(returns, benchmark_returns):
+    active_returns = returns - benchmark_returns
+    tracking_error = np.std(active_returns)
+    return np.mean(active_returns) / tracking_error
+
+@error_handler
+def calculate_market_neutral_beta(returns, market_returns):
+    market_neutral_returns = returns - market_returns
+    beta = calculate_beta(market_neutral_returns, market_returns)
+    return beta
+
+@error_handler
+def calculate_downside_deviation(returns, target_return=0):
+    downside_returns = returns[returns < target_return]
+    return np.sqrt(np.mean((downside_returns - target_return)**2))
+
+@error_handler
+def calculate_upside_deviation(returns, target_return=0):
+    upside_returns = returns[returns > target_return]
+    return np.sqrt(np.mean((upside_returns - target_return)**2))
