@@ -332,3 +332,16 @@ def calculate_upside_potential_ratio(returns, target_return=0):
     upside_potential = np.mean(upside_returns - target_return)
     downside_risk = np.sqrt(np.mean(downside_returns**2))
     return upside_potential / downside_
+@error_handler
+def calculate_upside_potential_ratio(returns, target_return=0):
+    upside_returns = returns[returns > target_return]
+    downside_returns = returns[returns < target_return]
+    upside_potential = np.mean(upside_returns - target_return)
+    downside_risk = np.sqrt(np.mean(downside_returns**2))
+    return upside_potential / downside_risk
+
+@error_handler
+def calculate_pain_ratio(returns, risk_free_rate):
+    excess_return = np.mean(returns) - risk_free_rate
+    pain_index = np.mean(np.abs(np.maximum(0, np.maximum.accumulate(returns) - returns)))
+    return excess_return / pain_index
