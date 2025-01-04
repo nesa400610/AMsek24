@@ -373,3 +373,6 @@ def calculate_sterling_ratio(returns, risk_free_rate):
     excess_return = np.mean(returns) - risk_free_rate
     max_drawdown = calculate_maximum_drawdown(returns)
     return excess_return / max_drawdown
+@error_handler
+def calculate_portfolio_turnover(weights_before, weights_after):
+    return np.sum(np.abs(weights_after - weights_before)) / 2
