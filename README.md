@@ -350,3 +350,26 @@ def calculate_gain_loss_ratio(returns):
     gains = returns[returns > 0]
     losses = returns[returns < 0]
     return np.mean(gains) / abs(np.mean(losses))
+@error_handler
+def calculate_ulcer_index(returns):
+    cumulative_returns = (1 + returns).cumprod()
+    drawdowns = 1 - cumulative_returns / np.maximum.accumulate(cumulative_returns)
+    return np.sqrt(np.mean(drawdowns**2))
+
+@error_handler
+def calculate_martin_ratio(returns, risk_free_rate):
+    excess_return = np.mean(returns) - risk_free_rate
+    ulcer_index = calculate_ulcer_index(returns)
+    return excess_return / ulcer_index
+
+@error_handler
+def calculate_burke_ratio(returns, risk_free_rate):
+    excess_return = np.mean(returns) - risk_free_rate
+    drawdowns = 1 - (1 + returns).cumprod() / np.maximum.accumulate((1 + returns).cumprod())
+    return excess_return / np.sqrt(np.sum(drawdowns**2))
+
+@error_handler
+def calculate_sterling_ratio(returns, risk_free_rate):
+    excess_return = np.mean(returns) - risk_free_rate
+    max_drawdown = calculate_maximum_drawdown(returns)
+    return excess_return / max_drawdown
