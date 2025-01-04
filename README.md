@@ -345,3 +345,8 @@ def calculate_pain_ratio(returns, risk_free_rate):
     excess_return = np.mean(returns) - risk_free_rate
     pain_index = np.mean(np.abs(np.maximum(0, np.maximum.accumulate(returns) - returns)))
     return excess_return / pain_index
+@error_handler
+def calculate_gain_loss_ratio(returns):
+    gains = returns[returns > 0]
+    losses = returns[returns < 0]
+    return np.mean(gains) / abs(np.mean(losses))
