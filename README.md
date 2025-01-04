@@ -406,3 +406,8 @@ def calculate_downside_deviation(returns, target_return=0):
 def calculate_upside_deviation(returns, target_return=0):
     upside_returns = returns[returns > target_return]
     return np.sqrt(np.mean((upside_returns - target_return)**2))
+@error_handler
+def calculate_tail_ratio(returns, percentile=5):
+    left_tail = np.percentile(returns, percentile)
+    right_tail = np.percentile(returns, 100 - percentile)
+    return abs(right_tail) / abs(left_tail)
