@@ -456,3 +456,15 @@ def calculate_jensen_alpha(returns, market_returns, risk_free_rate):
 def calculate_treynor_ratio(returns, market_returns, risk_free_rate):
     beta = calculate_beta(returns, market_returns)
     return (np.mean(returns) - risk_free_rate) / beta
+    @error_handler
+def calculate_active_share(portfolio_weights, benchmark_weights):
+    return np.sum(np.abs(portfolio_weights - benchmark_weights)) / 2
+
+@error_handler
+def calculate_portfolio_skewness(returns):
+    return skew(returns)
+
+@error_handler
+def calculate_portfolio_kurtosis(returns):
+    return kurtosis(returns)
+
