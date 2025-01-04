@@ -43,31 +43,3 @@ def train_model(model, data, optimizer, criterion, num_epochs):
         optimizer.step()
         print(f'Epoch {epoch+1}/{num_epochs}, Loss: {loss.item():.4f}')
 
-def optimize_portfolio(model, data, risk_tolerance):
-    model.eval()
-    with torch.no_grad():
-        predictions = model(data.x, data.edge_index)
-    weights = torch.softmax(predictions, dim=0)
-    return weights.numpy()
-
-def main():
-    tickers = ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'FB']
-    start_date = '2020-01-01'
-    end_date = '2021-12-31'
-    stock_data = load_stock_data(tickers, start_date, end_date)
-
-    graph = create_stock_graph(stock_data)
-    gnn_data = prepare_data_for_gnn(graph, stock_data)
-
-    model = StockGNN(num_features=stock_data.shape[1], hidden_channels=64, num_classes=1)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
-    criterion = torch.nn.MSELoss()
-
-    train_model(model, gnn_data, optimizer, criterion, num_epochs=100)
-
-    risk_tolerance = 0.5
-    optimal_weights = optimize_portfolio(model, gnn_data, risk_tolerance)
-
-    print("Оптимальные веса портфеля:")
-    for ticker, weight in zip(tickers, optimal_weights):
-        print(f"{ticker}: {weight:.4f}")
