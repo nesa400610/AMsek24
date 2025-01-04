@@ -419,3 +419,21 @@ def calculate_value_at_risk(returns, confidence_level=0.95):
 def calculate_conditional_value_at_risk(returns, confidence_level=0.95):
     var = calculate_value_at_risk(returns, confidence_level)
     return np.mean(returns[returns <= var])
+@error_handler
+def calculate_risk_parity_weights(covariance_matrix):
+    n = covariance_matrix.shape[0]
+    def risk_parity_objective(weights):
+        portfolio_risk = np.sqrt(np.dot(weights.T, np.dot(covariance_matrix, weights)))
+        risk_contributions = weights * (np.dot(covariance_matrix, weights)) / portfolio_risk
+        return np.sum((risk_contributions - risk_contributions.mean())**2)
+    
+    constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+    bounds = tuple((0, 1) for _ in range(n))
+    initial_weights = np.array([1/n for _ in range(n)])
+    result = minimize(risk_parity_objective, initial_weights, method='SLSQP', bounds=bounds, constraints=constraints)
+    return result.x
+
+@error_handler
+def calculate_factor_exposures(returns, factor_returns):
+    factor_model = sm.OLS(returns, sm.add_constant(factor_returns)).fit()
+    return factor_model.params[1:]
