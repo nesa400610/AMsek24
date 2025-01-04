@@ -1436,4 +1436,4 @@ if __name__ == "__main__":
     plt.legend()
     plt.tight_layout()
     plt.savefig('strategy_comparison.png')
- 
+    plt.close()
