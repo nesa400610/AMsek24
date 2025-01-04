@@ -1,3 +1,4 @@
+```python
 def example_function():
 
 import numpy as np
