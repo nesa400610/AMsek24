@@ -1865,5 +1865,20 @@ def optimize_portfolio_gnn_federated(returns_list, features_list, target_return,
             super(FederatedGNN, self).__init__()
             self.conv1 = GCNConv(num_features, hidden_channels)
             self.conv2 = GCNConv(hidden_channels, num_classes)
+      def forward(self, x, edge_index):
+            x = F.relu(self.conv1(x, edge_index))
+            x = self.conv2(x, edge_index)
+            return x
 
+    def train_local_model(model, data, target):
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+        criterion = torch.nn.MSELoss()
+        
+        model.train()
+        for _ in range(10):  # Локальные эпохи
+            optimizer.zero_grad()
+            output = model(data.x, data.edge_index)
+            loss = criterion(output, target)
+            loss.backward()
+            optimizer.step()
 
