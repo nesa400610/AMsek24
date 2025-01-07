@@ -1830,3 +1830,8 @@ def optimize_portfolio_gnn_meta_learning(returns_list, features_list, target_ret
         meta_optimizer.zero_grad()
         meta_loss.backward()
         meta_optimizer.step()
+    # Адаптация к целевым данным
+    target_data = prepare_gnn_data(target_returns, target_features)
+    target_target = torch.tensor(target_returns.mean().values, dtype=torch.float).unsqueeze(1)
+    adapted_weights = inner_loop(meta_model, target_data, target_target)
+
