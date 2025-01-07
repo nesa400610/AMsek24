@@ -1787,3 +1787,8 @@ def optimize_portfolio_gnn_transfer_learning(source_returns, source_features, ta
 def optimize_portfolio_gnn_meta_learning(returns_list, features_list, target_returns, target_features, target_return, risk_tolerance):
     from torch.optim import Adam
     from collections import OrderedDict
+    class MetaGNN(torch.nn.Module):
+        def __init__(self, num_features, hidden_channels, num_classes):
+            super(MetaGNN, self).__init__()
+            self.conv1 = GCNConv(num_features, hidden_channels)
+            self.conv2 = GCNConv(hidden_channels, num_classes)
