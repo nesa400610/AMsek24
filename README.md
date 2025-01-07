@@ -1783,3 +1783,7 @@ def optimize_portfolio_gnn_transfer_learning(source_returns, source_features, ta
 
     return result.x
 
+@error_handler
+def optimize_portfolio_gnn_meta_learning(returns_list, features_list, target_returns, target_features, target_return, risk_tolerance):
+    from torch.optim import Adam
+    from collections import OrderedDict
