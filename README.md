@@ -1805,3 +1805,7 @@ def optimize_portfolio_gnn_meta_learning(returns_list, features_list, target_ret
         loss = criterion(output, target)
         loss.backward()
         optimizer.step()
+        return OrderedDict((name, param.data) for (name, param) in model.named_parameters())
+
+    meta_model = MetaGNN(num_features=features_list[0].shape[1], hidden_channels=64, num_classes=1)
+    meta_optimizer = Adam(meta_model.parameters(), lr=0.001)
