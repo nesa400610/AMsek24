@@ -1881,4 +1881,24 @@ def optimize_portfolio_gnn_federated(returns_list, features_list, target_return,
             loss = criterion(output, target)
             loss.backward()
             optimizer.step()
+        return OrderedDict((name, param.data) for (name, param) in model.named_parameters())
+
+    def aggregate_models(model_weights_list):
+        averaged_weights = OrderedDict()
+        for name in model_weights_list[0].keys():
+            averaged_weights[name] = torch.stack([weights[name] for weights in model_weights_list]).mean(dim=0)
+        return averaged_weights
+
+    # Инициализация глобальной модели
+    global_model = FederatedGNN(num_features=features_list[0].shape[1], hidden_channels=64, num_classes=1)
+
+    # Федеративное обучение
+    for round in range(10):  # Раунды федеративного обучения
+        local_weights_list = []
+        for returns, features in zip(returns_list, features_list):
+            data = prepare_gnn_data(returns, features)
+            target = torch.tensor(returns.mean().values, dtype=torch.float).unsqueeze(1)
+            
+            local_model = FederatedGNN(num_features=features.shape[1], hidden_channels=64, num_classes=1)
+            local_model.load_state_dict(global_model.state_dict())
 
