@@ -1815,3 +1815,10 @@ def optimize_portfolio_gnn_meta_learning(returns_list, features_list, target_ret
         for returns, features in zip(returns_list, features_list):
             data = prepare_gnn_data(returns, features)
             target = torch.tensor(returns.mean().values, dtype=torch.float).unsqueeze(1)
+           # Внутренний цикл обучения
+            fast_weights = inner_loop(meta_model, data, target)
+            
+            # Обновление мета-параметров
+            with torch.no_grad():
+                for name, param in meta_model.named_parameters():
+                    param.data = fast_weights[name]
