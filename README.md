@@ -1809,3 +1809,9 @@ def optimize_portfolio_gnn_meta_learning(returns_list, features_list, target_ret
 
     meta_model = MetaGNN(num_features=features_list[0].shape[1], hidden_channels=64, num_classes=1)
     meta_optimizer = Adam(meta_model.parameters(), lr=0.001)
+    # Мета-обучение
+    for epoch in range(100):
+        meta_loss = 0
+        for returns, features in zip(returns_list, features_list):
+            data = prepare_gnn_data(returns, features)
+            target = torch.tensor(returns.mean().values, dtype=torch.float).unsqueeze(1)
