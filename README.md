@@ -1852,5 +1852,18 @@ def optimize_portfolio_gnn_meta_learning(returns_list, features_list, target_ret
         {'type': 'eq', 'fun': lambda x: np.sum(predicted_returns * x) - target_return}
     )
     bounds = tuple((0, 1) for _ in range(n_assets))
+    result = minimize(objective, [1/n_assets]*n_assets, method='SLSQP', bounds=bounds, constraints=constraints)
+
+    return result.x
+
+@error_handler
+def optimize_portfolio_gnn_federated(returns_list, features_list, target_return, risk_tolerance):
+    from collections import OrderedDict
+
+    class FederatedGNN(torch.nn.Module):
+        def __init__(self, num_features, hidden_channels, num_classes):
+            super(FederatedGNN, self).__init__()
+            self.conv1 = GCNConv(num_features, hidden_channels)
+            self.conv2 = GCNConv(hidden_channels, num_classes)
 
 
