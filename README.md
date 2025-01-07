@@ -1796,3 +1796,12 @@ def optimize_portfolio_gnn_meta_learning(returns_list, features_list, target_ret
             x = F.relu(self.conv1(x, edge_index))
             x = self.conv2(x, edge_index)
             return x
+    def inner_loop(model, data, target, alpha=0.01):
+        criterion = torch.nn.MSELoss()
+        optimizer = Adam(model.parameters(), lr=alpha)
+        
+        optimizer.zero_grad()
+        output = model(data.x, data.edge_index)
+        loss = criterion(output, target)
+        loss.backward()
+        optimizer.step()
