@@ -1837,5 +1837,20 @@ def optimize_portfolio_gnn_meta_learning(returns_list, features_list, target_ret
     # Применение адаптированных весов
     for name, param in meta_model.named_parameters():
         param.data = adapted_weights[name]
+    meta_model.eval()
+    with torch.no_grad():
+        predicted_returns = meta_model(target_data.x, target_data.edge_index).squeeze().numpy()
+
+    def objective(weights):
+        portfolio_return = np.sum(predicted_returns * weights)
+        portfolio_risk = np.sqrt(np.dot(weights.T, np.dot(target_returns.cov(), weights)))
+        return -(portfolio_return - risk_tolerance * portfolio_risk)
+
+    n_assets = len(target_returns.columns)
+    constraints = (
+        {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
+        {'type': 'eq', 'fun': lambda x: np.sum(predicted_returns * x) - target_return}
+    )
+    bounds = tuple((0, 1) for _ in range(n_assets))
 
 
