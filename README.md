@@ -1792,3 +1792,7 @@ def optimize_portfolio_gnn_meta_learning(returns_list, features_list, target_ret
             super(MetaGNN, self).__init__()
             self.conv1 = GCNConv(num_features, hidden_channels)
             self.conv2 = GCNConv(hidden_channels, num_classes)
+      def forward(self, x, edge_index):
+            x = F.relu(self.conv1(x, edge_index))
+            x = self.conv2(x, edge_index)
+            return x
