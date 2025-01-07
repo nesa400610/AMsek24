@@ -1822,3 +1822,11 @@ def optimize_portfolio_gnn_meta_learning(returns_list, features_list, target_ret
             with torch.no_grad():
                 for name, param in meta_model.named_parameters():
                     param.data = fast_weights[name]
+        output = meta_model(data.x, data.edge_index)
+            loss = torch.nn.MSELoss()(output, target)
+            meta_loss += loss
+
+        meta_loss /= len(returns_list)
+        meta_optimizer.zero_grad()
+        meta_loss.backward()
+        meta_optimizer.step()
