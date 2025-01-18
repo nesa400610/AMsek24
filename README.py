@@ -158,13 +158,12 @@ def backtest_strategy(data, weights, initial_capital=10000):
     sharpe_ratio = np.sqrt(252) * portfolio_returns.mean() / portfolio_returns.std()
     max_drawdown = (pd.Series(portfolio_value) / pd.Series(portfolio_value).cummax() - 1).min()
     
-    return {
+    return 
         'final_value': portfolio_value[-1],
         'total_return': (portfolio_value[-1] / initial_capital - 1) * 100,
         'sharpe_ratio': sharpe_ratio,
         'max_drawdown': max_drawdown
-    }
-
+  
 @error_handler
 def visualize_portfolio_performance(data, weights, initial_capital=10000):
     portfolio_value = [initial_capital]
@@ -243,13 +242,12 @@ def calculate_portfolio_metrics(weights, returns):
     var = calculate_portfolio_var(weights, returns)
     cvar = calculate_portfolio_cvar(weights, returns)
     
-    return {
+    return
         'return': portfolio_return,
         'volatility': portfolio_volatility,
         'sharpe_ratio': sharpe_ratio,
         'var': var,
         'cvar': cvar
-    }
 
 @error_handler
 def visualize_efficient_frontier(returns, num_portfolios=1000):
@@ -348,11 +346,13 @@ def calculate_pain_ratio(returns, risk_free_rate):
     excess_return = np.mean(returns) - risk_free_rate
     pain_index = np.mean(np.abs(np.maximum(0, np.maximum.accumulate(returns) - returns)))
     return excess_return / pain_index
+  
 @error_handler
 def calculate_gain_loss_ratio(returns):
     gains = returns[returns > 0]
     losses = returns[returns < 0]
     return np.mean(gains) / abs(np.mean(losses))
+  
 @error_handler
 def calculate_ulcer_index(returns):
     cumulative_returns = (1 + returns).cumprod()
@@ -376,6 +376,7 @@ def calculate_sterling_ratio(returns, risk_free_rate):
     excess_return = np.mean(returns) - risk_free_rate
     max_drawdown = calculate_maximum_drawdown(returns)
     return excess_return / max_drawdown
+  
 @error_handler
 def calculate_portfolio_turnover(weights_before, weights_after):
     return np.sum(np.abs(weights_after - weights_before)) / 2
@@ -848,10 +849,10 @@ def optimize_portfolio_mean_cvar(returns, target_return, confidence_level=0.95):
         cvar = calculate_conditional_value_at_risk(portfolio_returns, confidence_level)
         return cvar
     
-    constraints = (
+    constraints = 
         {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
         {'type': 'eq', 'fun': lambda x: np.sum(returns.mean() * x) - target_return}
-    )
+
     bounds = tuple((0, 1) for _ in range(n_assets))
     
     result = minimize(objective, [1/n_assets]*n_assets, method='SLSQP', bounds=bounds, constraints=constraints)
@@ -977,10 +978,10 @@ def optimize_portfolio_maximum_decorrelation(returns):
         portfolio_correlation = np.dot(weights.T, np.dot(corr_matrix, weights))
         return portfolio_correlation
     
-    constraints = (
+    constraints = 
         {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
         {'type': 'eq', 'fun': lambda x: np.sum(x * returns.mean()) - returns.mean().mean()}
-    )
+ 
     bounds = tuple((
 import torch
 import torch.nn.functional as F
@@ -1078,10 +1079,10 @@ def optimize_portfolio_gnn(returns, features, target_return, risk_tolerance):
         return -(portfolio_return - risk_tolerance * portfolio_risk)
     
     n_assets = len(returns.columns)
-    constraints = (
+    constraints = 
         {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
         {'type': 'eq', 'fun': lambda x: np.sum(predicted_returns * x) - target_return}
-    )
+  
     bounds = tuple((0, 1) for _ in range(n_assets))
     
     result = minimize(objective, [1/n_assets]*n_assets, method='SLSQP', bounds=bounds, constraints=constraints)
@@ -1091,17 +1092,17 @@ def optimize_portfolio_gnn(returns, features, target_return, risk_tolerance):
 @error_handler
 def optimize_portfolio_gnn_ensemble(returns, features, target_return, risk_tolerance):
     data = prepare_gnn_data(returns, features)
-    models = [
+    models = 
         StockGNN(num_features=features.shape[1], hidden_channels=64, num_classes=1),
         StockGAT(num_features=features.shape[1], hidden_channels=32, num_classes=1),
         StockSAGE(num_features=features.shape[1], hidden_channels=64, num_classes=1)
-    ]
+    
     target = torch.tensor(returns.mean().values, dtype=torch.float).unsqueeze(1)
     
     for model in models:
         train_gnn(model, data, target)
     
-    predicted_returns = []
+    predicted_returns = 
     for model in models:
         model.eval()
         with torch.no_grad():
@@ -1116,10 +1117,10 @@ def optimize_portfolio_gnn_ensemble(returns, features, target_return, risk_toler
         return -(portfolio_return - risk_tolerance * portfolio_risk)
     
     n_assets = len(returns.columns)
-    constraints = (
+    constraints = 
         {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
         {'type': 'eq', 'fun': lambda x: np.sum(ensemble_returns * x) - target_return}
-    )
+    
     bounds = tuple((0, 1) for _ in range(n_assets))
     
     result = minimize(objective, [1/n_assets]*n_assets, method='SLSQP', bounds=bounds, constraints=constraints)
@@ -1137,33 +1138,33 @@ def evaluate_gnn_portfolio(returns, features, test_returns, optimization_func):
     sharpe_ratio = calculate_sharpe_ratio(portfolio_returns)
     max_drawdown = calculate_maximum_drawdown(portfolio_returns)
     
-    return {
+    return 
         'Sharpe Ratio': sharpe_ratio,
         'Max Drawdown': max_drawdown,
         'Cumulative Return': (1 + portfolio_returns).prod() - 1
-    }
+    
 
 @error_handler
 def compare_gnn_portfolio_strategies(returns, features, test_returns):
-    strategies = {
+    strategies = 
         'GNN': optimize_portfolio_gnn,
         'GNN Ensemble': optimize_portfolio_gnn_ensemble,
         'Mean-Variance': optimize_portfolio_markowitz,
         'Risk Parity': optimize_portfolio_risk_parity
-    }
     
-    results = {}
+    
+    results = 
     for name, strategy in strategies.items():
         if 'GNN' in name:
             results[name] = evaluate_gnn_portfolio(returns, features, test_returns, strategy)
         else:
             weights = strategy(returns)
             portfolio_returns = np.sum(test_returns * weights, axis=1)
-            results[name] = {
+            results[name] = 
                 'Sharpe Ratio': calculate_sharpe_ratio(portfolio_returns),
                 'Max Drawdown': calculate_maximum_drawdown(portfolio_returns),
                 'Cumulative Return': (1 + portfolio_returns).prod() - 1
-            }
+            
     
     return pd.DataFrame(results).T
 
@@ -1225,10 +1226,10 @@ def optimize_portfolio_gnn_multitask(returns, features, target_return, risk_tole
         return -(portfolio_return - risk_tolerance * portfolio_risk)
 
     n_assets = len(returns.columns)
-    constraints = (
+    constraints = 
         {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
         {'type': 'eq', 'fun': lambda x: np.sum(predicted_returns * x) - target_return}
-    )
+    
     bounds = tuple((0, 1) for _ in range(n_assets))
 
     result = minimize(objective, [1/n_assets]*n_assets, method='SLSQP', bounds=bounds, constraints=constraints)
@@ -1294,12 +1295,12 @@ def optimize_portfolio_gnn_temporal(returns, features, sequence_length=30):
     node_features = torch.tensor(np.array(node_features), dtype=torch.float)
     y = torch.tensor(np.array(y), dtype=torch.float)
 
-    dataset = TemporalData(
+    dataset = TemporalData
         edge_index=edge_index,
         edge_attr=None,
         x=node_features,
         y=y
-    )
+    
 
     class TemporalGNN(torch.nn.Module):
         def __init__(self, node_features, hidden_channels, num_assets):
@@ -1350,7 +1351,7 @@ def evaluate_portfolio_performance(weights, returns, risk_free_rate=0.02):
     portfolio_returns = np.sum(returns * weights, axis=1)
     excess_returns = portfolio_returns - risk_free_rate / 252  # Предполагаем дневные доходности
 
-    performance = {
+    performance = 
         'Total Return': (1 + portfolio_returns).prod() - 1,
         'Annualized Return': (1 + portfolio_returns).prod() ** (252 / len(returns)) - 1,
         'Volatility': portfolio_returns.std() * np.sqrt(252),
@@ -1362,7 +1363,7 @@ def evaluate_portfolio_performance(weights, returns, risk_free_rate=0.02):
         'Tail Ratio': calculate_tail_ratio(portfolio_returns),
         'Value at Risk (95%)': calculate_value_at_risk(portfolio_returns),
         'Expected Shortfall (95%)': calculate_conditional_value_at_risk(portfolio_returns),
-    }
+    
 
     return performance
 
@@ -1379,11 +1380,11 @@ def run_portfolio_optimization_experiment(returns, features, test_returns, strat
         train_performance = evaluate_portfolio_performance(weights, returns)
         test_performance = evaluate_portfolio_performance(weights, test_returns)
         
-        results[name] = {
+        results[name] = 
             'Train Performance': train_performance,
             'Test Performance': test_performance,
             'Weights': weights
-        }
+        
     
     return results
 
@@ -1408,7 +1409,6 @@ if __name__ == "__main__":
         'Minimum Variance': optimize_portfolio_minimum_variance,
         'Maximum Sharpe': optimize_portfolio_maximum_sharpe,
         'Black-Litterman': optimize_portfolio_black_litterman,
-    }
     
     results = run_portfolio_optimization_experiment(train_returns, features, test_returns, strategies)
     
@@ -1469,10 +1469,10 @@ def optimize_portfolio_gnn_attention(returns, features, target_return, risk_tole
         return -(portfolio_return - risk_tolerance * portfolio_risk)
 
     n_assets = len(returns.columns)
-    constraints = (
+    constraints = 
         {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
         {'type': 'eq', 'fun': lambda x: np.sum(predicted_returns * x) - target_return}
-    )
+    
     bounds = tuple((0, 1) for _ in range(n_assets))
 
     result = minimize(objective, [1/n_assets]*n_assets, method='SLSQP', bounds=bounds, constraints=constraints)
@@ -1495,12 +1495,12 @@ def optimize_portfolio_gnn_lstm(returns, features, sequence_length=30):
     node_features = torch.tensor(np.array(node_features), dtype=torch.float)
     y = torch.tensor(np.array(y), dtype=torch.float)
 
-    dataset = TemporalData(
+    dataset = TemporalData
         edge_index=edge_index,
         edge_attr=None,
         x=node_features,
         y=y
-    )
+    
 
     class TemporalGNN(torch.nn.Module):
         def __init__(self, node_features, hidden_channels, num_assets):
@@ -1597,10 +1597,10 @@ def optimize_portfolio_gnn_autoencoder(returns, features, target_return, risk_to
         return -(portfolio_return - risk_tolerance * portfolio_risk - 0.1 * latent_penalty)
 
     n_assets = len(returns.columns)
-    constraints = (
+    constraints = 
         {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
         {'type': 'eq', 'fun': lambda x: np.sum(returns.mean() * x) - target_return}
-    )
+    
     bounds = tuple((0, 1) for _ in range(n_assets))
 
     result = minimize(objective, [1/n_assets]*n_assets, method='SLSQP', bounds=bounds, constraints=constraints)
@@ -1773,10 +1773,10 @@ def optimize_portfolio_gnn_transfer_learning(source_returns, source_features, ta
         return -(portfolio_return - risk_tolerance * portfolio_risk)
 
     n_assets = len(target_returns.columns)
-    constraints = (
+    constraints = 
         {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
         {'type': 'eq', 'fun': lambda x: np.sum(predicted_returns * x) - target_return}
-    )
+    
     bounds = tuple((0, 1) for _ in range(n_assets))
 
     result = minimize(objective, [1/n_assets]*n_assets, method='SLSQP', bounds=bounds, constraints=constraints)
@@ -1847,10 +1847,10 @@ def optimize_portfolio_gnn_meta_learning(returns_list, features_list, target_ret
         return -(portfolio_return - risk_tolerance * portfolio_risk)
 
     n_assets = len(target_returns.columns)
-    constraints = (
+    constraints = 
         {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
         {'type': 'eq', 'fun': lambda x: np.sum(predicted_returns * x) - target_return}
-    )
+    
     bounds = tuple((0, 1) for _ in range(n_assets))
     result = minimize(objective, [1/n_assets]*n_assets, method='SLSQP', bounds=bounds, constraints=constraints)
 
@@ -1901,21 +1901,6 @@ def optimize_portfolio_gnn_federated(returns_list, features_list, target_return,
             
             local_model = FederatedGNN(num_features=features.shape[1], hidden_channels=64, num_classes=1)
             local_model.load_state_dict(global_model.state_dict())
-
-
-  
-
-        
-
-            
- 
-            
-    
-
-
-
-  
-        
             
             local_weights = train_local_model(local_model, data, target)
             local_weights_list.append(local_weights)
@@ -1939,10 +1924,10 @@ def optimize_portfolio_gnn_federated(returns_list, features_list, target_return,
         return -(portfolio_return - risk_tolerance * portfolio_risk)
 
     n_assets = len(all_returns.columns)
-    constraints = (
+    constraints = 
         {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
         {'type': 'eq', 'fun': lambda x: np.sum(predicted_returns * x) - target_return}
-    )
+    
     bounds = tuple((0, 1) for _ in range(n_assets))
 
     result = minimize(objective, [1/n_assets]*n_assets, method='SLSQP', bounds=bounds, constraints=constraints)
@@ -1981,10 +1966,10 @@ def optimize_portfolio_gnn_ensemble_boosting(returns, features, target_return, r
         return -(portfolio_return - risk_tolerance * portfolio_risk)
 
     n_assets = len(returns.columns)
-    constraints = (
+    constraints = 
         {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
         {'type': 'eq', 'fun': lambda x: np.sum(final_predictions * x) - target_return}
-    )
+    
     bounds = tuple((0, 1) for _ in range(n_assets))
 
     result = minimize(objective, [1/n_assets]*n_assets, method='SLSQP', bounds=bounds, constraints=constraints)
@@ -2007,12 +1992,12 @@ def optimize_portfolio_gnn_time_series(returns, features, target_return, risk_to
     node_features = torch.tensor(np.array(node_features), dtype=torch.float)
     y = torch.tensor(np.array(y), dtype=torch.float)
 
-    dataset = TemporalData(
+    dataset = TemporalData
         edge_index=edge_index,
         edge_attr=None,
         x=node_features,
         y=y
-    )
+    
 
     class TemporalGNN(torch.nn.Module):
         def __init__(self, node_features, hidden_channels, num_assets):
@@ -2051,10 +2036,10 @@ def optimize_portfolio_gnn_time_series(returns, features, target_return, risk_to
         return -(portfolio_return - risk_tolerance * portfolio_risk)
 
     n_assets = len(returns.columns)
-    constraints = (
+    constraints = 
         {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
         {'type': 'eq', 'fun': lambda x: np.sum(predicted_returns * x) - target_return}
-    )
+    
     bounds = tuple((0, 1) for _ in range(n_assets))
 
     result = minimize(objective, [1/n_assets]*n_assets, method='SLSQP', bounds=bounds, constraints=constraints)
@@ -2102,7 +2087,7 @@ efficient_portfolios = [optimize_portfolio_markowitz(returns, target_return, 1) 
 
 @error_handler
 def run_comprehensive_portfolio_analysis(returns, features, test_returns, test_features):
-    strategies = {
+    strategies = 
         'GNN': optimize_portfolio_gnn,
         'GNN Ensemble': optimize_portfolio_gnn_ensemble,
         'GNN Multitask': optimize_portfolio_gnn_multitask,
@@ -2123,7 +2108,7 @@ def run_comprehensive_portfolio_analysis(returns, features, test_returns, test_f
         'Maximum Sharpe': optimize_portfolio_maximum_sharpe,
         'Risk Parity': optimize_portfolio_risk_parity,
         'Black-Litterman': optimize_portfolio_black_litterman
-    }
+    
 
     results = {}
     weights_dict = {}
@@ -2138,18 +2123,18 @@ def run_comprehensive_portfolio_analysis(returns, features, test_returns, test_f
         train_performance = evaluate_portfolio_performance(weights, returns)
         test_performance = evaluate_portfolio_performance(weights, test_returns)
         
-        results[name] = {
+        results[name] = 
             'Train Performance': train_performance,
             'Test Performance': test_performance,
             'Weights': weights
-        }
+        
 
     # Визуализация результатов
     visualize_portfolio_optimization_results(returns, weights_dict)
 
     # Сравнительный анализ стратегий
     comparison_df = pd.DataFrame({
-        name: {
+        name: 
             'Train Sharpe': result['Train Performance']['Sharpe Ratio'],
             'Test Sharpe': result['Test Performance']['Sharpe Ratio'],
             'Train Return': result['Train Performance']['Annualized Return'],
@@ -2158,8 +2143,6 @@ def run_comprehensive_portfolio_analysis(returns, features, test_returns, test_f
             'Test Volatility': result['Test Performance']['Volatility'],
             'Train Max Drawdown': result['Train Performance']['Max Drawdown'],
             'Test Max Drawdown': result['Test Performance']['Max Drawdown']
-        } for name, result in results.items()
-    }).T
 
     comparison_df = comparison_df.sort_values('Test Sharpe', ascending=False)
     print(comparison_df)
